@@ -72,6 +72,18 @@ async function main() {
       assert.deepEqual(Array.from(memberGroups.done,i=>i.id),['finished-work']);
       assert(!memberGroups.planned.some(i=>workStatus(i)==='处理中'));
       state.data=memberOriginalData;
+      const historyHtml=workHistory([
+        {kind:'状态流转',time:'2026-10-16T09:00:00',text:'Transition hidden'},
+        {kind:'评论补充',time:'2026-10-16T10:00:00',text:'Comment directly visible <script>unsafe</script>'},
+        {kind:'测试记录',time:'2026-10-16T11:00:00',text:'QA record retained'}
+      ]);
+      assert(!historyHtml.includes('Transition hidden'));
+      assert(!historyHtml.includes('<strong>状态流转</strong>'));
+      const commentHtml=historyHtml.split('<article class="report-line">').find(s=>s.includes('<strong>评论补充</strong>'));
+      assert(commentHtml.includes('Comment directly visible &lt;script&gt;unsafe&lt;/script&gt;'));
+      assert(!commentHtml.includes('<details>'));
+      assert(historyHtml.includes('QA record retained'));
+      assert(workHistory([{kind:'状态流转'}]).includes('暂无额外记录'));
       state.member='codex';
       assert(memberView().includes('该成员不在展示范围内'));
     `, context);
