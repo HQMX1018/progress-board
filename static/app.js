@@ -15,7 +15,7 @@ async function api(path, payload, headers = {}) {
 }
 function showLogin() { $('#workspace').hidden = true; $('#login').hidden = false; }
 function rangeContains(date) { const day = (date || '').slice(0,10); return day && day >= state.data.start && day <= state.day; }
-function pending(items) { return items.filter(i => !['done','archived'].includes(i.group)); }
+function pending(items) { return items.filter(i => !['done','archived'].includes(i.group) && i.state !== '挂起'); }
 function relevant(user) { return state.data.items.filter(i => i.members.includes(user)); }
 function completed(items) { return items.filter(i => state.data.done_ids.includes(i.id)); }
 function find(id) { return state.data.items.find(i => i.id === id); }

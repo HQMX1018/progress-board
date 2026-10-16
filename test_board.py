@@ -38,6 +38,9 @@ class BoardTests(unittest.TestCase):
             for idx, status in enumerate(["待修复", "待测试", "测试通过", "已合并"], 1):
                 conn.execute("INSERT INTO transitions VALUES (?,1,NULL,?,2,'agent','Evidence',?,'agent-instance')", (idx, status, created))
             conn.execute("INSERT INTO transitions VALUES (5,2,NULL,'非Bug·重复',1,'human','Duplicate',?,NULL)", (created,))
+            for bid, title, status in [(3, "Suspended bug", "挂起"), (4, "Active bug", "待修复")]:
+                conn.execute("INSERT INTO bugs VALUES (?,?,1,1,?,'medium',?,?,NULL,NULL,NULL,NULL)", (bid, title, status, created, created))
+                conn.execute("INSERT INTO transitions VALUES (?,?,NULL,?,1,'human','State record',?,NULL)", (bid + 3, bid, status, created))
         cls.source_hash = hashlib.sha256(source.BUG_DB.read_bytes()).hexdigest()
         storage.init()
         app.CACHE.clear()
@@ -94,6 +97,19 @@ class BoardTests(unittest.TestCase):
         self.assertIn("bug-1", report["done_ids"])
         self.assertNotIn("bug-2", report["done_ids"])
         self.assertNotIn("bug-1", report["plan_ids"])
+
+    def test_suspended_excluded_from_pending_but_retained(self):
+        cookie = self.login()
+        for period in ("day", "week"):
+            status, report, _ = self.request(f"/api/dashboard?day={self.day}&period={period}", cookie=cookie)
+            self.assertEqual(status, 200)
+            suspended = next(i for i in report["items"] if i["id"] == "bug-3")
+            self.assertEqual(suspended["state"], "挂起")
+            self.assertNotIn("bug-3", report["done_ids"])
+            expected = [i for i in report["items"] if i["group"] not in {"done", "archived"} and i["state"] != "挂起"]
+            self.assertEqual(report["stats"]["pending"], len(expected))
+            self.assertIn("bug-4", [i["id"] for i in expected])
+            self.assertNotIn("bug-3", [i["id"] for i in expected])
 
     def test_agent_idempotency_and_owner(self):
         cookie = self.login()

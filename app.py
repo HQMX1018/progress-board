@@ -51,10 +51,11 @@ def period_data(day, weekly=False):
     done = [i for i in items if i["group"] == "done" and in_range(i["completed_at"])]
     new = [i for i in items if in_range(i["created_at"])]
     plans = [i for i in items if i.get("planned_for") and start <= i["planned_for"] <= day]
-    pending = [i for i in items if i["group"] not in {"done", "archived"}]
+    unfinished = [i for i in items if i["group"] not in {"done", "archived"}]
+    pending = [i for i in unfinished if i["state"] != "挂起"]
     exceptions = []
     cutoff = dt.datetime.fromisoformat(day + "T23:59:59").replace(tzinfo=source.TZ)
-    for i in pending:
+    for i in unfinished:
         kind = None
         note = ""
         if i.get("due_at") and i["due_at"] < day:
@@ -75,7 +76,7 @@ def period_data(day, weekly=False):
             "stats": {"planned": len(plans), "new": len(new), "done": len(done), "pending": len(pending)},
             "plan_ids": [i["id"] for i in plans], "new_ids": [i["id"] for i in new], "done_ids": [i["id"] for i in done],
             "notes": ["计划工作仅统计明确填写计划日期的工作；Bug 未提供计划日期，不自动算作计划。",
-                      "计划、新增、完成可以重叠，不直接相加。完成工作按工作项去重，不含非 Bug / 重复归档。",
+                      "计划、新增、完成可以重叠，不直接相加。完成工作按工作项去重，不含非 Bug / 重复归档。挂起不计入当前待处理。",
                       "成员参与同一 Bug 不代表都独立完成该 Bug；提交、评论与测试按实际操作人归集。",
                       "Bug 进度采用修复提交、人工测试通过、合并三阶段；回退后按当前状态重算。",
                       "需求平台没有独立完成时间，以最后更新时间近似显示，并在详情说明。"]}

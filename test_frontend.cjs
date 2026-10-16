@@ -44,6 +44,16 @@ async function main() {
       assert.equal(workStatus({group:'current',source_type:'bug',state:'待分析'}),'未开工');
       assert.equal(workStatus({group:'current',source_type:'bug',state:'待测试'}),'处理中');
       assert.equal(workStatus({group:'done'}),'已完成');
+      const pendingFixture=[
+        {id:'held',group:'planned',state:'挂起'},
+        {id:'active',group:'current',state:'待修复'},
+        {id:'plan',group:'planned',state:'计划'},
+        {id:'blocked-active',group:'current',state:'处理中',blocked:true},
+        {id:'complete',group:'done',state:'已完成'},
+        {id:'archive',group:'archived',state:'非Bug·重复'}
+      ];
+      assert.deepEqual(Array.from(pending(pendingFixture),i=>i.id),['active','plan','blocked-active']);
+      assert.equal(pending(state.data.items).length,state.data.stats.pending);
       state.member='codex';
       assert(memberView().includes('该成员不在展示范围内'));
     `, context);
