@@ -31,6 +31,8 @@ python3 app.py --host 127.0.0.1 --port 9090
 
 - 首页统计计划、新增、完成、当前待处理；异常默认一行，点击展开；今日完成位于成员工作下。
 - 每日 / 每周简报；成员工作与可追溯进度；需求提交记录自动归集；持久意见反馈。
+- 个人简报：每人每日一份，按“已完成、未完成、后续计划”填写；可新增、编辑和删除，只允许维护本人内容。保留修订历史，并通过版本校验避免覆盖更新。
+- 每日简报：保留计划、新增、完成、当前待处理四项自动汇总，在下方汇总当天各人的个人简报；提供整体复制。
 - 总报记录：累计展示截至所选日期的已完成工作，按完成时间倒序；支持搜索、每页 30 项及证据回溯。未完成和非 Bug / 重复归档不计入。
 - 登录后在“Agent 接口”创建密钥，示例与接口地址在页面内查看。
 - `POST /api/work-items` 创建工作，`POST /api/work-items/{id}/events` 更新子项 / 状态 / 计划。
@@ -39,5 +41,8 @@ python3 app.py --host 127.0.0.1 --port 9090
 - 已处理 / 已验收须填写记录或证据 URL；仅允许 http/https 链接。
 - `GET /api/dashboard?day=YYYY-MM-DD&period=week` 汇总；`GET /api/items/{id}?day=YYYY-MM-DD` 详情。
 - `GET /healthz` 用于进程检查；业务源读取失败返回 503，页面保留原数据并提示。
+- `GET /api/briefs?day=YYYY-MM-DD` 查询当天各人简报；`?mine=1&history=1` 查看本人历史。
+- `POST /api/briefs` 接收 day、completed、unfinished、plans、revision；首次新增 revision=0，修改使用返回的版本号。
+- `POST /api/briefs/delete` 接收 id、revision，删除本人简报。删除保留历史记录，从每日汇总移除，允许重新填写。
 
 运行日志不记录密钥、Cookie 或请求体。页面文字均转义，静态文件只暴露三个固定路由。

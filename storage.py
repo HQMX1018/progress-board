@@ -47,6 +47,14 @@ def init():
         CREATE TABLE IF NOT EXISTS feedback (
           id INTEGER PRIMARY KEY, author TEXT NOT NULL, category TEXT NOT NULL, area TEXT NOT NULL,
           title TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT '待查看');
+        CREATE TABLE IF NOT EXISTS personal_briefs (
+          id INTEGER PRIMARY KEY, author TEXT NOT NULL, day TEXT NOT NULL,
+          completed TEXT NOT NULL, unfinished TEXT NOT NULL, plans TEXT NOT NULL,
+          revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT,
+          UNIQUE(author,day));
+        CREATE TABLE IF NOT EXISTS brief_history (
+          id INTEGER PRIMARY KEY, brief_id INTEGER NOT NULL REFERENCES personal_briefs(id),
+          actor TEXT NOT NULL, action TEXT NOT NULL, snapshot TEXT NOT NULL, created_at TEXT NOT NULL);
         """)
         conn.commit()
 
@@ -212,3 +220,62 @@ def item_events(item_id, day):
     with closing(connect()) as conn:
         return [{"kind": r["kind"], "time": r["created_at"], "actor": r["actor"], "text": "工作状态 / 计划 / 子项更新已留痕", "url": ""}
                 for r in conn.execute("SELECT * FROM events WHERE item_id=? AND created_at<=? ORDER BY id DESC LIMIT 60", (item_id, day + "T23:59:59.999999+08:00"))]
+
+
+def list_briefs(day=None, author=None):
+    conditions, args = ["deleted_at IS NULL"], []
+    if day:
+        conditions.append("day=?")
+        args.append(day)
+    if author:
+        conditions.append("author=?")
+        args.append(author)
+    with closing(connect()) as conn:
+        return [dict(row) for row in conn.execute(
+            "SELECT * FROM personal_briefs WHERE " + " AND ".join(conditions) + " ORDER BY day DESC,author LIMIT 500", args)]
+
+
+def save_brief(actor, payload, delete=False):
+    revision = payload.get("revision")
+    if type(revision) is not int or revision < 0:
+        raise ValidationError("请提供当前简报版本，刷新后重试")
+    with closing(connect()) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        moment = now()
+        if delete:
+            bid = payload.get("id")
+            if type(bid) is not int:
+                raise ValidationError("简报编号无效")
+            old = conn.execute("SELECT * FROM personal_briefs WHERE id=?", (bid,)).fetchone()
+            if not old or old["deleted_at"]:
+                raise ValidationError("简报不存在或已删除", 404)
+            if old["author"] != actor:
+                raise ValidationError("只能删除本人的简报", 403)
+            if old["revision"] != revision:
+                raise ValidationError("简报已被更新，请刷新后再删除", 409)
+            conn.execute("UPDATE personal_briefs SET deleted_at=?,updated_at=?,revision=revision+1 WHERE id=?", (moment, moment, bid))
+            action = "deleted"
+        else:
+            day = date_value(payload.get("day"))
+            if not day or day > moment[:10]:
+                raise ValidationError("请选择今天或过去的日期")
+            completed = text(payload, "completed", 10000)
+            unfinished = text(payload, "unfinished", 10000)
+            plans = text(payload, "plans", 10000)
+            if not any((completed, unfinished, plans)):
+                raise ValidationError("已完成、未完成、后续计划至少填写一项")
+            old = conn.execute("SELECT * FROM personal_briefs WHERE author=? AND day=?", (actor, day)).fetchone()
+            # Deleted entries may be recreated from an empty form; history remains intact.
+            expected = old["revision"] if old and not old["deleted_at"] else 0
+            if expected != revision:
+                raise ValidationError("简报已被更新，请刷新后重试，避免覆盖他人更新", 409)
+            if old:
+                bid = old["id"]
+                conn.execute("UPDATE personal_briefs SET completed=?,unfinished=?,plans=?,revision=revision+1,updated_at=?,deleted_at=NULL WHERE id=?", (completed, unfinished, plans, moment, bid))
+                action = "created" if old["deleted_at"] else "updated"
+            else:
+                cur = conn.execute("INSERT INTO personal_briefs(author,day,completed,unfinished,plans,revision,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)", (actor, day, completed, unfinished, plans, moment, moment))
+                bid, action = cur.lastrowid, "created"
+        row = dict(conn.execute("SELECT * FROM personal_briefs WHERE id=?", (bid,)).fetchone())
+        conn.execute("INSERT INTO brief_history(brief_id,actor,action,snapshot,created_at) VALUES(?,?,?,?,?)", (bid, actor, action, json.dumps(row, ensure_ascii=False), moment))
+        return {"brief": row, "action": action}

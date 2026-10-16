@@ -1,5 +1,6 @@
 """Isolated integration checks; never run writes against the live Bug database."""
 import hashlib
+import datetime as dt
 import json
 import sqlite3
 import tempfile
@@ -143,6 +144,43 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(status, 201)
         rows = self.request("/api/feedback", cookie=cookie)[1]["feedback"]
         self.assertTrue(any(r["id"] == result["id"] and r["author"] == "alice" for r in rows))
+
+    def test_personal_briefs_crud_summary_permissions_and_history(self):
+        alice, bob = self.login(), self.login("bob")
+        payload = {"day": self.day, "completed": "Delivered order fix", "unfinished": "Notification pending", "plans": "Finish testing", "revision": 0}
+        self.assertEqual(self.request("/api/briefs?day=" + self.day)[0], 401)
+        self.assertEqual(self.request("/api/briefs", {"day": self.day, "revision": 0}, cookie=alice)[0], 400)
+        future = (dt.date.fromisoformat(self.day) + dt.timedelta(days=1)).isoformat()
+        self.assertEqual(self.request("/api/briefs", dict(payload, day=future), cookie=alice)[0], 400)
+        status, created, _ = self.request("/api/briefs", payload, cookie=alice)
+        self.assertEqual(status, 201)
+        brief = created["brief"]
+        self.assertEqual(brief["author"], "alice")
+        self.assertEqual(brief["revision"], 1)
+        self.assertEqual(self.request("/api/briefs", payload, cookie=alice)[0], 409)
+        self.assertEqual(self.request("/api/briefs/delete", {"id": brief["id"], "revision": 1}, cookie=bob)[0], 403)
+        status, bobs, _ = self.request("/api/briefs", dict(payload, author="alice", completed="Bob result"), cookie=bob)
+        self.assertEqual(status, 201)
+        self.assertEqual(bobs["brief"]["author"], "bob")
+        all_rows = self.request("/api/briefs?day=" + self.day, cookie=alice)[1]["briefs"]
+        self.assertEqual({r["author"] for r in all_rows}, {"alice", "bob"})
+        self.assertTrue(all(r["author_name"] in {"Alice", "Bob"} for r in all_rows))
+        own_rows = self.request("/api/briefs?mine=1&history=1", cookie=bob)[1]["briefs"]
+        self.assertTrue(all(r["author"] == "bob" for r in own_rows))
+        status, updated, _ = self.request("/api/briefs", dict(payload, completed="Edited delivery", revision=1), cookie=alice)
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["brief"]["revision"], 2)
+        self.assertEqual(self.request("/api/briefs/delete", {"id": brief["id"], "revision": 1}, cookie=alice)[0], 409)
+        self.assertEqual(self.request("/api/briefs/delete", {"id": brief["id"], "revision": 2}, cookie=alice)[0], 200)
+        remaining = self.request("/api/briefs?day=" + self.day, cookie=alice)[1]["briefs"]
+        self.assertEqual([r["author"] for r in remaining], ["bob"])
+        status, recreated, _ = self.request("/api/briefs", payload, cookie=alice)
+        self.assertEqual(status, 201)
+        self.assertEqual(recreated["brief"]["id"], brief["id"])
+        self.assertEqual(recreated["brief"]["revision"], 4)
+        with closing(storage.connect()) as conn:
+            actions = [r[0] for r in conn.execute("SELECT action FROM brief_history WHERE brief_id=? ORDER BY id", (brief["id"],))]
+        self.assertEqual(actions, ["created", "updated", "deleted", "created"])
 
 
 if __name__ == "__main__":

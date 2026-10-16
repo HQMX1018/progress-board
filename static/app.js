@@ -1,8 +1,8 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = { user: null, day: '', today: '', data: null, page: 'overview', member: '', list: '', trace: null, traceReturn: 'overview', feedback: [], serial: 0, ledgerQuery: '', ledgerPage: 1, requestQueries: {requests:'',requests_done:'',requests_deferred:''} };
-const names = { overview:'每日总览', requests:'我的需求 · 未完成', requests_done:'我的需求 · 已完成', requests_deferred:'我的需求 · 暂缓', daily:'每日简报', weekly:'每周简报', ledger:'总报记录', feedback:'意见反馈', agent:'Agent 接口', member:'成员工作', list:'工作清单', trace:'进度依据' };
+const state = { user: null, day: '', today: '', data: null, page: 'overview', member: '', list: '', trace: null, traceReturn: 'overview', feedback: [], serial: 0, ledgerQuery: '', ledgerPage: 1, requestQueries: {requests:'',requests_done:'',requests_deferred:''}, briefs: [], briefHistory: [] };
+const names = { overview:'每日总览', requests:'我的需求 · 未完成', requests_done:'我的需求 · 已完成', requests_deferred:'我的需求 · 暂缓', personal:'个人简报', daily:'每日简报', weekly:'每周简报', ledger:'总报记录', feedback:'意见反馈', agent:'Agent 接口', member:'成员工作', list:'工作清单', trace:'进度依据' };
 const hiddenMemberIds = new Set(['wei', 'cc', 'codex', 'test']);
 function visibleMember(user) { return !hiddenMemberIds.has(user.userid) && !['王', 'CC 自动化', 'codex', 'test'].includes(user.name); }
 let toastTimer;
@@ -81,10 +81,28 @@ function requestsView() {
   return `<div class="notice">从原平台自动获取提交记录，无需重复填写。${state.page==='requests_deferred'?'Bug 平台“挂起”及需求“暂缓”的记录集中展示在此。':''}<a href="${esc(state.bugUrl)}/bugs/new" target="_blank" rel="noopener">去提交问题 ↗</a>　<a href="${esc(state.bugUrl)}/requirements" target="_blank" rel="noopener">查看需求 ↗</a></div>${panel(`我的需求与问题 · ${label}`,`<div class="filter"><input id="request-search" placeholder="搜索标题或编号" aria-label="搜索我的需求" value="${esc(state.requestQueries[state.page]||'')}"></div><div id="request-items">${requestCards()}</div>`,tabs)}`;
 }
 function reportView(weekly) {
+  if(!weekly)return dailyBriefsView();
   const data=state.data,s=data.stats;
   const text=`${weekly?'每周':'每日'}简报 ${data.start} — ${state.day}\n\n计划工作：${s.planned} 项\n新增工作：${s.new} 项\n完成工作：${s.done} 项\n当前待处理：${s.pending} 项\n\n本期完成\n${completed(data.items).map(i=>`· ${i.title}（${i.owner_name}）`).join('\n')||'暂无完成记录'}\n\n异常事项：${data.exceptions.length} 项\n${data.exceptions.slice(0,10).map(e=>`· ${e.title}：${e.note}；${e.next_step}`).join('\n')}\n\n后续计划\n${data.items.filter(i=>i.group==='planned').slice(0,10).map(i=>`· ${i.title}：${i.planned_for||'未设日期'}`).join('\n')||'暂无计划记录'}\n\n口径：计划、新增、完成可能重叠；完成按工作项去重。需求侧记录从 Bug 平台归集。`;
   state.reportText=text;
   return stats()+exceptions()+panel(`${weekly?'本周':'当日'}工作简报`,`<div class="report-copy">${esc(text)}</div>`,`<button class="btn" data-copy-report>复制简报</button>`);
+}
+function ownBrief() { return state.briefs.find(b=>b.author===state.user.userid&&b.day===state.day); }
+function briefSections(brief) {
+  return `<div class="member-grid">${[['completed','已完成'],['unfinished','未完成'],['plans','后续计划']].map(([key,title])=>`<section class="brief-section"><h3>${title}</h3><div class="report-copy">${esc(brief[key]||'暂无填写')}</div></section>`).join('')}</div>`;
+}
+function dailyBriefsView() {
+  const s=state.data.stats;
+  const summary=`每日简报 ${state.day}\n\n计划工作：${s.planned} 项\n新增工作：${s.new} 项\n完成工作：${s.done} 项\n当前待处理：${s.pending} 项`;
+  const reports=state.briefs.slice().sort((a,b)=>a.author_name.localeCompare(b.author_name,'zh-CN'));
+  state.reportText=summary+'\n\n'+(reports.map(b=>`${b.author_name}\n已完成\n${b.completed||'暂无填写'}\n未完成\n${b.unfinished||'暂无填写'}\n后续计划\n${b.plans||'暂无填写'}`).join('\n\n')||'暂无个人简报');
+  return stats()+exceptions()+panel('每日简报汇总',`<div class="report-copy">${esc(summary)}</div><p class="small muted">以上为自动统计；下方展示各人填写的个人简报，互不替代。</p>`,`<button class="btn" data-copy-report>复制每日简报</button>`)+panel('各人简报',reports.length?reports.map(b=>`<article class="report-line"><div class="work-top"><h2>${esc(b.author_name)}</h2>${b.author===state.user.userid?'<button class="text-btn" data-go="personal">编辑我的简报 →</button>':''}</div><p class="small muted">${esc(b.day)} · 更新于 ${esc(b.updated_at)}</p>${briefSections(b)}</article>`).join(''):'<div class="empty">当天暂无个人简报。<button class="text-btn" data-go="personal">填写我的简报 →</button></div>',`<span class="tag">已填写 ${reports.length} 人</span>`);
+}
+function personalBriefView() {
+  const brief=ownBrief();
+  const form=`<form id="brief-form" class="feedback-form"><p><strong>${esc(state.user.name)}</strong> · ${esc(state.day)}</p><p class="small muted">${brief?'已有简报，可编辑后保存。更新于 '+esc(brief.updated_at):'当天还未填写简报，保存后会展示到每日简报。'}</p>${[['completed','已完成','今天已完成的工作与结果'],['unfinished','未完成','尚未完成的工作、原因和当前进展'],['plans','后续计划','接下来的工作安排']].map(([key,label,hint])=>`<label for="brief-${key}">${label}</label><textarea id="brief-${key}" rows="5" maxlength="10000" placeholder="${hint}">${esc(brief?.[key]||'')}</textarea>`).join('')}<div class="actions end">${brief?'<button type="button" class="btn" data-delete-brief>删除本日简报</button>':''}<button type="button" class="btn" data-go="daily">查看每日汇总</button><button type="submit" class="btn primary">${brief?'保存修改':'新增简报'}</button></div></form>`;
+  const history=state.briefHistory.length?state.briefHistory.map(b=>`<article class="report-line"><button class="text-btn" data-brief-day="${esc(b.day)}">${esc(b.day)} · 查看 / 编辑 →</button><div class="small muted">更新于 ${esc(b.updated_at)}</div></article>`).join(''):'<div class="empty">暂无个人简报记录</div>';
+  return `<div class="grid">${panel('我的个人简报',form)}${panel('我的简报记录',history)}</div>`;
 }
 function ledgerItems() {
   return state.data.items.filter(i=>i.group==='done').sort((a,b)=>(b.completed_at||'').localeCompare(a.completed_at||'')||a.id.localeCompare(b.id));
@@ -151,12 +169,21 @@ function render() {
   $('#breadcrumb').textContent=names[state.page];
   $('#page-description').textContent=state.page==='requests_deferred'?'暂缓的需求与问题，按提交时间从早到晚查看。':state.page==='requests'?'未完成的需求与问题，按提交时间从早到晚查看。':state.page==='requests_done'?'已完成的需求与问题，按完成时间从早到晚查看。':state.page==='ledger'?'累计已完成工作留痕，按完成时间倒序查看。':state.page==='weekly'?`本周 ${state.data.start} 至 ${state.day}，按工作项去重汇总。`:'计划、新增和完成工作自动汇总，点击进度查看依据。';
   document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===state.page));
-  $('#content').innerHTML=({overview,member:memberView,list:listView,requests:requestsView,requests_done:requestsView,requests_deferred:requestsView,daily:()=>reportView(false),weekly:()=>reportView(true),ledger:ledgerView,feedback:feedbackView,agent:agentView,trace:traceView})[state.page]();
+  $('#content').innerHTML=({overview,member:memberView,list:listView,requests:requestsView,requests_done:requestsView,requests_deferred:requestsView,personal:personalBriefView,daily:()=>reportView(false),weekly:()=>reportView(true),ledger:ledgerView,feedback:feedbackView,agent:agentView,trace:traceView})[state.page]();
   $('#read-status').textContent=`数据读取时间：${state.data.read_at} · 来源 Bug 平台（只读）+ 工作汇报 · 查看日期 ${state.day}`;
 }
 async function refresh() {
   const serial=++state.serial;$('#refresh').disabled=true;
-  try { const data=await api(`/api/dashboard?day=${state.day}&period=${state.page==='weekly'?'week':'day'}`);if(serial!==state.serial)return;state.data=data;$('#load-error').hidden=true;if(state.page==='feedback')state.feedback=(await api('/api/feedback')).feedback;render(); }
+  try {
+    const data=await api(`/api/dashboard?day=${state.day}&period=${state.page==='weekly'?'week':'day'}`);
+    let briefs,history,feedback;
+    if(['daily','personal'].includes(state.page))briefs=(await api(`/api/briefs?day=${state.day}`)).briefs;
+    if(state.page==='personal')history=(await api('/api/briefs?mine=1&history=1')).briefs;
+    if(state.page==='feedback')feedback=(await api('/api/feedback')).feedback;
+    if(serial!==state.serial)return;
+    state.data=data;if(briefs)state.briefs=briefs;if(history)state.briefHistory=history;if(feedback)state.feedback=feedback;
+    $('#load-error').hidden=true;render();
+  }
   catch(e){$('#load-error').textContent=e.message+' 已保留上次读取的内容。';$('#load-error').hidden=false;}
   finally{$('#refresh').disabled=false;}
 }
@@ -174,6 +201,8 @@ document.addEventListener('click',async e=>{
     if(b.dataset.member){state.member=b.dataset.member;await go('member');return;}
     if(b.dataset.ledgerPage){state.ledgerPage=Number(b.dataset.ledgerPage);$('#ledger-results').innerHTML=ledgerResults();return;}
     if(b.dataset.list){state.list=b.dataset.list;await go('list');return;}
+    if(b.dataset.briefDay){state.day=b.dataset.briefDay;$('#day').value=state.day;await go('personal');return;}
+    if(b.hasAttribute('data-delete-brief')){const brief=ownBrief();if(!brief)return;if(!window.confirm('删除 '+state.day+' 的个人简报？'))return;await api('/api/briefs/delete',{id:brief.id,revision:brief.revision});await refresh();toast('个人简报已删除');return;}
     if(b.hasAttribute('data-copy-report')){try{await navigator.clipboard.writeText(state.reportText);toast('已复制简报');}catch{toast('浏览器未允许复制，请选择简报文字复制。');}return;}
     if(b.dataset.child){const c=state.trace.item.subtasks.find(s=>s.id===b.dataset.child);state.child=c.id;$('#update-title').textContent=c.title;$('#child-status').value=c.status;$('#child-note').value=c.note||'';$('#child-url').value=c.evidence_url||'';$('#update-dialog').showModal();return;}
     if(b.dataset.workState){await updateWork({work_status:b.dataset.workState});return;}
@@ -194,6 +223,7 @@ document.addEventListener('submit',async e=>{
     else if(form.id==='work-form'){await api('/api/work-items',{title:$('#work-title').value,status:$('#work-state').value,planned_for:$('#work-plan').value||null,due_at:$('#work-due').value||null,next_step:$('#work-next').value,subtasks:$('#work-children').value.split('\n').map(s=>s.trim()).filter(Boolean).map(title=>({title}))},{'Idempotency-Key':crypto.randomUUID?crypto.randomUUID():String(Date.now())});$('#work-dialog').close();form.reset();await refresh();toast('工作已保存');}
     else if(form.id==='update-form'){await updateWork({subtask_id:state.child,status:$('#child-status').value,note:$('#child-note').value,evidence_url:$('#child-url').value});$('#update-dialog').close();toast('进度已更新并留痕');}
     else if(form.id==='feedback-form'){await api('/api/feedback',{category:$('#feedback-type').value,area:$('#feedback-area').value,title:$('#feedback-title').value,content:$('#feedback-content').value});await refresh();toast('反馈已保存');}
+    else if(form.id==='brief-form'){await api('/api/briefs',{day:state.day,completed:$('#brief-completed').value,unfinished:$('#brief-unfinished').value,plans:$('#brief-plans').value,revision:ownBrief()?.revision||0});await refresh();toast('个人简报已保存，每日简报同步更新');}
     else if(form.id==='token-form'){const result=await api('/api/tokens',{name:$('#token-name').value});$('#token-created').innerHTML='<p class="notice">密钥仅显示一次，请保存。请勿将密钥写入公共代码库。</p><input class="token-value" aria-label="新建密钥" readonly>';$('#token-created input').value=result.token;await renderTokens();}
   } catch(error){if(form.id==='login-form')$('#login-error').textContent=error.message;else toast(error.message);}
   finally{if(submit)submit.disabled=false;}

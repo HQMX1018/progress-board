@@ -93,11 +93,27 @@ async function main() {
     await vm.runInContext("trace(state.data.items.find(i=>i.source_type==='bug').id)", context);
     assert(element('#content').innerHTML.includes('子项与进度依据'));
     assert(!element('#content').innerHTML.includes('<progress'));
-    for (const page of ['requests', 'requests_done', 'requests_deferred', 'daily', 'weekly', 'ledger', 'feedback', 'agent']) {
+    for (const page of ['requests', 'requests_done', 'requests_deferred', 'personal', 'daily', 'weekly', 'ledger', 'feedback', 'agent']) {
       await vm.runInContext(`go('${page}')`, context);
       assert(element('#content').innerHTML.length > 100);
       assert(element('#load-error').hidden);
     }
+    vm.runInContext(`
+      const originalBriefData=state.data,originalBriefs=state.briefs,originalHistory=state.briefHistory;
+      state.data={stats:{planned:4,new:4,done:2,pending:31},exceptions:[]};
+      state.briefs=[
+        {id:1,author:state.user.userid,author_name:'Alice',day:state.day,completed:'Finished <script>unsafe</script>',unfinished:'Pending one',plans:'Next one',updated_at:'2026-10-16T09:00:00',revision:1},
+        {id:2,author:'someone-else',author_name:'Bob',day:state.day,completed:'Bob completed',unfinished:'Bob unfinished',plans:'Bob plans',updated_at:'2026-10-16T09:30:00',revision:1}
+      ];
+      const dailyHtml=dailyBriefsView();
+      for(const line of ['计划工作：4 项','新增工作：4 项','完成工作：2 项','当前待处理：31 项'])assert(dailyHtml.includes(line));
+      assert(dailyHtml.includes('Alice'));assert(dailyHtml.includes('Bob'));
+      assert(dailyHtml.includes('Finished &lt;script&gt;unsafe&lt;/script&gt;'));
+      for(const label of ['已完成','未完成','后续计划'])assert(dailyHtml.includes(label));
+      const personalHtml=personalBriefView();assert(personalHtml.includes('id="brief-form"'));assert(personalHtml.includes('保存修改'));assert(personalHtml.includes('data-delete-brief'));
+      state.briefs=[];assert(personalBriefView().includes('新增简报'));assert(dailyBriefsView().includes('当天暂无个人简报'));
+      state.data=originalBriefData;state.briefs=originalBriefs;state.briefHistory=originalHistory;
+    `, context);
     vm.runInContext(`
       const originalData=state.data;
       const completeSample={id:'old-done',title:'Older completed work',group:'done',completed_at:'2026-09-30T10:00:00',owner_name:'Alice',owner_label:'负责人',source:'工作汇报'};
@@ -152,7 +168,7 @@ async function main() {
     vm.runInContext("assert.equal(esc('<script>'), '&lt;script&gt;')", context);
     const staticHtml = await fetch(base).then(r => r.text());
     assert(staticHtml.includes('/app.js'));
-    if(!process.env.BOARD_LOCAL_JS){assert(staticHtml.includes('data-page="ledger"'));assert(staticHtml.includes('data-page="requests_done"'));assert(staticHtml.includes('data-page="requests_deferred"'));}
+    if(!process.env.BOARD_LOCAL_JS){assert(staticHtml.includes('data-page="ledger"'));assert(staticHtml.includes('data-page="requests_done"'));assert(staticHtml.includes('data-page="requests_deferred"'));assert(staticHtml.includes('data-page="personal"'));}
     const css = await fetch(base + '/style.css');
     assert(css.ok);
     console.log('PASS: live API + all page render paths, member detail, trace, compact exceptions, completed placement, safe text rendering, static assets. Browser screenshot QA is not included.');

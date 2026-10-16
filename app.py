@@ -166,6 +166,12 @@ class Handler(BaseHTTPRequestHandler):
             self.response({"user": user, "today": source.now()[:10], "bug_url": source.BUG_URL})
         elif path == "/api/dashboard":
             self.response(period_data(selected_day(query), query.get("period", ["day"])[0] == "week"))
+        elif path == "/api/briefs":
+            mine = query.get("mine", [""])[0] == "1"
+            day = None if mine and query.get("history", [""])[0] == "1" else selected_day(query)
+            people = {u["userid"]: u["name"] for u in source.users()}
+            briefs = storage.list_briefs(day, user["userid"] if mine else None)
+            self.response({"briefs": [{**b, "author_name": people.get(b["author"], b["author"])} for b in briefs]})
         elif path.startswith("/api/items/"):
             day = selected_day(query)
             iid = path.rsplit("/", 1)[-1]
@@ -234,6 +240,9 @@ class Handler(BaseHTTPRequestHandler):
                 cur = conn.execute("INSERT INTO feedback(author,category,area,title,content,created_at) VALUES(?,?,?,?,?,?)", (uid, category, area, title, content, source.now()))
                 feedback_id = cur.lastrowid
             self.response({"id": feedback_id, "status": "待查看"}, 201)
+        elif path in {"/api/briefs", "/api/briefs/delete"}:
+            result = storage.save_brief(uid, data, delete=path.endswith("/delete"))
+            self.response(result, 201 if result["action"] == "created" else 200)
         elif path == "/api/tokens" and kind == "human":
             name = storage.text(data, "name", 100, True)
             secret = "board_" + secrets.token_urlsafe(32)
