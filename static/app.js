@@ -47,9 +47,14 @@ function overview() {
   const tabs='';
   return stats()+exceptions()+`<div class="grid"><div><section class="panel"><div class="panel-head"><div><h2>成员工作</h2><span class="small muted">点击查看当前、计划和已完成工作</span></div>${tabs}</div>${members()}<div class="panel-body small muted">成员视图展示参与关联；同一工作可能关联多人，首页完成数按工作项去重。</div></section>${panel('今日已完成',itemList(completed(state.data.items)),`<span class="tag green">${state.data.stats.done} 项</span>`)}</div><div>${panel('当前待处理',itemList(pending(state.data.items)),`<span class="tag">${state.data.stats.pending} 项</span>`)}${panel('统计口径','<details><summary class="detail-toggle">查看计划、新增与完成的定义</summary>'+state.data.notes.map(n=>`<p class="small muted">${esc(n)}</p>`).join('')+'</details>')}</div></div>`;
 }
+function memberWorkGroups(items) {
+  const current=pending(items).filter(i=>workStatus(i)==='处理中');
+  const planned=items.filter(i=>!['done','archived'].includes(i.group)&&!current.includes(i));
+  return {current,planned,done:completed(items)};
+}
 function memberView() {
   const user=state.data.users.find(u=>u.userid===state.member&&visibleMember(u)); if(!user)return '<div class="empty">该成员不在展示范围内</div>';
-  const items=relevant(user.userid), current=items.filter(i=>i.group==='current'), planned=items.filter(i=>i.group==='planned'), done=completed(items);
+  const {current,planned,done}=memberWorkGroups(relevant(user.userid));
   return `<div class="actions"><button class="btn" data-go="overview">← 返回总览</button><h2>${esc(user.name)}的工作</h2></div><p class="inline-note">按提交、分配及实际操作关联，非个人独立交付归因；Bug 上的分配人是回归负责人。</p><div class="member-grid">${panel('当前工作',itemList(current,12),`<span class="tag">${current.length} 项</span>`)}${panel('计划工作 / 暂缓',itemList(planned,12),`<span class="tag">${planned.length} 项</span>`)}${panel('本期已完成',itemList(done,12),`<span class="tag green">${done.length} 项</span>`)}</div>`;
 }
 function listView() {

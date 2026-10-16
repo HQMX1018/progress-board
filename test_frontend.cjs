@@ -54,6 +54,24 @@ async function main() {
       ];
       assert.deepEqual(Array.from(pending(pendingFixture),i=>i.id),['active','plan','blocked-active']);
       assert.equal(pending(state.data.items).length,state.data.stats.pending);
+      const memberOriginalData=state.data;
+      const memberFixture=[
+        {id:'developing-requirement',group:'planned',source_type:'requirement',state:'开发中',processed:0},
+        {id:'started-plan',group:'planned',source_type:'board',state:'计划',processed:1},
+        {id:'unstarted-plan',group:'planned',source_type:'board',state:'计划',processed:0},
+        {id:'unstarted-bug',group:'current',source_type:'bug',state:'待分析'},
+        {id:'fixing-bug',group:'current',source_type:'bug',state:'待修复'},
+        {id:'suspended-bug',group:'planned',source_type:'bug',state:'挂起'},
+        {id:'finished-work',group:'done'},
+        {id:'archived-work',group:'archived'}
+      ];
+      state.data={done_ids:['finished-work']};
+      const memberGroups=memberWorkGroups(memberFixture);
+      assert.deepEqual(Array.from(memberGroups.current,i=>i.id),['developing-requirement','started-plan','fixing-bug']);
+      assert.deepEqual(Array.from(memberGroups.planned,i=>i.id),['unstarted-plan','unstarted-bug','suspended-bug']);
+      assert.deepEqual(Array.from(memberGroups.done,i=>i.id),['finished-work']);
+      assert(!memberGroups.planned.some(i=>workStatus(i)==='处理中'));
+      state.data=memberOriginalData;
       state.member='codex';
       assert(memberView().includes('该成员不在展示范围内'));
     `, context);
