@@ -1,0 +1,24 @@
+[Unit]
+Description=CardOrder Progress Board (independent of Bug platform)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/progress-board
+Environment=PYTHONUNBUFFERED=1
+Environment=BUG_DB=%h/cardorder-platform/data/platform.db
+Environment=BUG_URL=http://192.168.31.145:8000
+Environment=BOARD_DATA=%h/progress-board/data
+ExecStart=/usr/bin/python3 %h/progress-board/app.py --host 0.0.0.0 --port 9090
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/progress-board/data
+ReadOnlyPaths=%h/cardorder-platform
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=default.target

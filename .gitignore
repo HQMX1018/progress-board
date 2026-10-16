@@ -1,0 +1,14 @@
+data/
+__pycache__/
+board-test-*/
+*.pyc
+.env
+.env.*
+!.env.example
+backups/
+releases/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
