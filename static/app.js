@@ -1,8 +1,8 @@
 'use strict';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = { user: null, day: '', today: '', data: null, page: 'overview', member: '', list: '', trace: null, traceReturn: 'overview', feedback: [], serial: 0, ledgerQuery: '', ledgerPage: 1, requestQueries: {requests:'',requests_done:''} };
-const names = { overview:'每日总览', requests:'我的需求 · 未完成', requests_done:'我的需求 · 已完成', daily:'每日简报', weekly:'每周简报', ledger:'总报记录', feedback:'意见反馈', agent:'Agent 接口', member:'成员工作', list:'工作清单', trace:'进度依据' };
+const state = { user: null, day: '', today: '', data: null, page: 'overview', member: '', list: '', trace: null, traceReturn: 'overview', feedback: [], serial: 0, ledgerQuery: '', ledgerPage: 1, requestQueries: {requests:'',requests_done:'',requests_deferred:''} };
+const names = { overview:'每日总览', requests:'我的需求 · 未完成', requests_done:'我的需求 · 已完成', requests_deferred:'我的需求 · 暂缓', daily:'每日简报', weekly:'每周简报', ledger:'总报记录', feedback:'意见反馈', agent:'Agent 接口', member:'成员工作', list:'工作清单', trace:'进度依据' };
 const hiddenMemberIds = new Set(['wei', 'cc', 'codex', 'test']);
 function visibleMember(user) { return !hiddenMemberIds.has(user.userid) && !['王', 'CC 自动化', 'codex', 'test'].includes(user.name); }
 let toastTimer;
@@ -23,6 +23,7 @@ function owner(item) { return `${item.owner_label || '负责人'}：${item.owner
 function workStatus(item) {
   if (item.group === 'done') return '已完成';
   if (item.group === 'archived') return '已归档';
+  if (['挂起','暂缓'].includes(item.state)) return '暂缓';
   if (item.state === '历史状态未知') return '状态待确认';
   if (item.source_type === 'bug') return ['待分析', '挂起'].includes(item.state) ? '未开工' : '处理中';
   return item.group === 'current' || item.processed > 0 || item.state === '开发中' ? '处理中' : '未开工';
@@ -63,20 +64,21 @@ function listView() {
   const items=ids?state.data.items.filter(i=>ids.includes(i.id)):pending(state.data.items);
   return '<button class="btn" data-go="overview">← 返回总览</button>'+panel(({planned:'计划工作',new:'新增工作',done:'完成工作',pending:'当前待处理'})[type],itemList(items,20),`<span class="tag">${items.length} 项</span>`);
 }
+function deferredRequest(item) { return !['done','archived'].includes(item.group)&&['挂起','暂缓'].includes(item.state); }
 function requestItems(page=state.page) {
-  const done=page==='requests_done',term=(state.requestQueries[page]||'').trim().toLowerCase();
+  const done=page==='requests_done',deferred=page==='requests_deferred',term=(state.requestQueries[page]||'').trim().toLowerCase();
   const time=i=>(done?i.completed_at:i.created_at)||i.created_at||'';
-  return state.data.items.filter(i=>i.reporter===state.user.userid&&(done?i.group==='done':!['done','archived'].includes(i.group))&&(i.title+i.id).toLowerCase().includes(term)).sort((a,b)=>time(a).localeCompare(time(b))||a.id.localeCompare(b.id));
+  return state.data.items.filter(i=>i.reporter===state.user.userid&&(done?i.group==='done':deferred?deferredRequest(i):!['done','archived'].includes(i.group)&&!deferredRequest(i))&&(i.title+i.id).toLowerCase().includes(term)).sort((a,b)=>time(a).localeCompare(time(b))||a.id.localeCompare(b.id));
 }
 function requestCards() {
-  const done=state.page==='requests_done',items=requestItems();
+  const done=state.page==='requests_done',label=state.page==='requests_deferred'?'暂缓':done?'已完成':'未完成',items=requestItems();
   const entry=i=>`<div class="request-entry"><div class="small muted">${done?'完成时间':'提交时间'}：${esc((done?i.completed_at:i.created_at)||'未提供')}</div>${card(i)}</div>`;
-  return `<p class="small muted">共 ${items.length} 项 · ${done?'按完成时间':'按提交时间'}从早到晚</p>${items.length?items.slice(0,15).map(entry).join('')+(items.length>15?`<details><summary class="detail-toggle">展开其余 ${items.length-15} 项</summary>${items.slice(15).map(entry).join('')}</details>`:''):`<div class="empty">暂无${done?'已完成':'未完成'}的需求与问题</div>`}`;
+  return `<p class="small muted">共 ${items.length} 项 · ${done?'按完成时间':'按提交时间'}从早到晚</p>${items.length?items.slice(0,15).map(entry).join('')+(items.length>15?`<details><summary class="detail-toggle">展开其余 ${items.length-15} 项</summary>${items.slice(15).map(entry).join('')}</details>`:''):`<div class="empty">暂无${label}的需求与问题</div>`}`;
 }
 function requestsView() {
-  const done=state.page==='requests_done';
-  const tabs=`<div class="tabs"><button class="tab ${done?'':'active'}" data-go="requests">未完成</button><button class="tab ${done?'active':''}" data-go="requests_done">已完成</button></div>`;
-  return `<div class="notice">从原平台自动获取提交记录，无需重复填写。<a href="${esc(state.bugUrl)}/bugs/new" target="_blank" rel="noopener">去提交问题 ↗</a>　<a href="${esc(state.bugUrl)}/requirements" target="_blank" rel="noopener">查看需求 ↗</a></div>${panel(`我的需求与问题 · ${done?'已完成':'未完成'}`,`<div class="filter"><input id="request-search" placeholder="搜索标题或编号" aria-label="搜索我的需求" value="${esc(state.requestQueries[state.page]||'')}"></div><div id="request-items">${requestCards()}</div>`,tabs)}`;
+  const label=state.page==='requests_deferred'?'暂缓':state.page==='requests_done'?'已完成':'未完成';
+  const tabs=`<div class="tabs">${[['requests','未完成'],['requests_done','已完成'],['requests_deferred','暂缓']].map(([page,name])=>`<button class="tab ${state.page===page?'active':''}" data-go="${page}">${name}</button>`).join('')}</div>`;
+  return `<div class="notice">从原平台自动获取提交记录，无需重复填写。${state.page==='requests_deferred'?'Bug 平台“挂起”及需求“暂缓”的记录集中展示在此。':''}<a href="${esc(state.bugUrl)}/bugs/new" target="_blank" rel="noopener">去提交问题 ↗</a>　<a href="${esc(state.bugUrl)}/requirements" target="_blank" rel="noopener">查看需求 ↗</a></div>${panel(`我的需求与问题 · ${label}`,`<div class="filter"><input id="request-search" placeholder="搜索标题或编号" aria-label="搜索我的需求" value="${esc(state.requestQueries[state.page]||'')}"></div><div id="request-items">${requestCards()}</div>`,tabs)}`;
 }
 function reportView(weekly) {
   const data=state.data,s=data.stats;
@@ -147,9 +149,9 @@ GET /api/items/&lt;id&gt;?day=YYYY-MM-DD</pre><div id="token-list"></div>`);
 function render() {
   $('#page-title').textContent=({overview:'当前待处理，今日已完成',member:'成员工作详情',trace:'可追溯的进度依据'})[state.page]||names[state.page];
   $('#breadcrumb').textContent=names[state.page];
-  $('#page-description').textContent=state.page==='requests'?'未完成的需求与问题，按提交时间从早到晚查看。':state.page==='requests_done'?'已完成的需求与问题，按完成时间从早到晚查看。':state.page==='ledger'?'累计已完成工作留痕，按完成时间倒序查看。':state.page==='weekly'?`本周 ${state.data.start} 至 ${state.day}，按工作项去重汇总。`:'计划、新增和完成工作自动汇总，点击进度查看依据。';
+  $('#page-description').textContent=state.page==='requests_deferred'?'暂缓的需求与问题，按提交时间从早到晚查看。':state.page==='requests'?'未完成的需求与问题，按提交时间从早到晚查看。':state.page==='requests_done'?'已完成的需求与问题，按完成时间从早到晚查看。':state.page==='ledger'?'累计已完成工作留痕，按完成时间倒序查看。':state.page==='weekly'?`本周 ${state.data.start} 至 ${state.day}，按工作项去重汇总。`:'计划、新增和完成工作自动汇总，点击进度查看依据。';
   document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===state.page));
-  $('#content').innerHTML=({overview,member:memberView,list:listView,requests:requestsView,requests_done:requestsView,daily:()=>reportView(false),weekly:()=>reportView(true),ledger:ledgerView,feedback:feedbackView,agent:agentView,trace:traceView})[state.page]();
+  $('#content').innerHTML=({overview,member:memberView,list:listView,requests:requestsView,requests_done:requestsView,requests_deferred:requestsView,daily:()=>reportView(false),weekly:()=>reportView(true),ledger:ledgerView,feedback:feedbackView,agent:agentView,trace:traceView})[state.page]();
   $('#read-status').textContent=`数据读取时间：${state.data.read_at} · 来源 Bug 平台（只读）+ 工作汇报 · 查看日期 ${state.day}`;
 }
 async function refresh() {

@@ -44,6 +44,7 @@ async function main() {
       assert.equal(workStatus({group:'current',source_type:'bug',state:'待分析'}),'未开工');
       assert.equal(workStatus({group:'current',source_type:'bug',state:'待测试'}),'处理中');
       assert.equal(workStatus({group:'done'}),'已完成');
+      assert.equal(workStatus({group:'planned',source_type:'bug',state:'挂起'}),'暂缓');
       const pendingFixture=[
         {id:'held',group:'planned',state:'挂起'},
         {id:'active',group:'current',state:'待修复'},
@@ -92,7 +93,7 @@ async function main() {
     await vm.runInContext("trace(state.data.items.find(i=>i.source_type==='bug').id)", context);
     assert(element('#content').innerHTML.includes('子项与进度依据'));
     assert(!element('#content').innerHTML.includes('<progress'));
-    for (const page of ['requests', 'requests_done', 'daily', 'weekly', 'ledger', 'feedback', 'agent']) {
+    for (const page of ['requests', 'requests_done', 'requests_deferred', 'daily', 'weekly', 'ledger', 'feedback', 'agent']) {
       await vm.runInContext(`go('${page}')`, context);
       assert(element('#content').innerHTML.length > 100);
       assert(element('#load-error').hidden);
@@ -122,6 +123,9 @@ async function main() {
         {...requestSample,id:'done-new',group:'done'},
         {...requestSample,id:'pending-old',group:'planned',created_at:'2026-10-01T09:00:00'},
         {...requestSample,id:'done-old',group:'done',completed_at:'2026-10-03T10:00:00'},
+        {...requestSample,id:'held-bug',group:'planned',state:'挂起'},
+        {...requestSample,id:'deferred-requirement',group:'planned',source_type:'requirement',state:'暂缓',created_at:'2026-10-01T08:00:00'},
+        {...requestSample,id:'other-held-bug',group:'planned',state:'挂起',reporter:'someone-else'},
         {...requestSample,id:'other-person',group:'current',reporter:'someone-else'},
         {...requestSample,id:'archived-request',group:'archived'}
       ]};
@@ -134,12 +138,21 @@ async function main() {
       assert(requestsView().includes('我的需求与问题 · 已完成'));
       state.requestQueries.requests_done='done-old';assert.equal(requestItems().length,1);
       state.page='requests';assert.equal(requestItems().length,2);
-      state.data=requestOriginalData;state.page=requestOriginalPage;state.requestQueries={requests:'',requests_done:''};
+      state.page='requests_deferred';
+      assert.deepEqual(Array.from(requestItems(),i=>i.id),['deferred-requirement','held-bug']);
+      assert(requestsView().includes('我的需求与问题 · 暂缓'));
+      state.requestQueries.requests_deferred='held-bug';assert.equal(requestItems().length,1);
+      state.page='requests';assert.equal(requestItems().length,2);
+      state.requestQueries.requests_deferred='';
+      state.data.items=state.data.items.map(i=>i.id==='held-bug'?{...i,group:'current',state:'待修复'}:i);
+      assert(requestItems().some(i=>i.id==='held-bug'));
+      state.page='requests_deferred';assert(!requestItems().some(i=>i.id==='held-bug'));
+      state.data=requestOriginalData;state.page=requestOriginalPage;state.requestQueries={requests:'',requests_done:'',requests_deferred:''};
     `, context);
     vm.runInContext("assert.equal(esc('<script>'), '&lt;script&gt;')", context);
     const staticHtml = await fetch(base).then(r => r.text());
     assert(staticHtml.includes('/app.js'));
-    if(!process.env.BOARD_LOCAL_JS){assert(staticHtml.includes('data-page="ledger"'));assert(staticHtml.includes('data-page="requests_done"'));}
+    if(!process.env.BOARD_LOCAL_JS){assert(staticHtml.includes('data-page="ledger"'));assert(staticHtml.includes('data-page="requests_done"'));assert(staticHtml.includes('data-page="requests_deferred"'));}
     const css = await fetch(base + '/style.css');
     assert(css.ok);
     console.log('PASS: live API + all page render paths, member detail, trace, compact exceptions, completed placement, safe text rendering, static assets. Browser screenshot QA is not included.');
